@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-paper font-sans text-ink;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display tracking-tight;
+  }
+  :focus-visible {
+    outline: 2px solid theme('colors.sage.600');
+    outline-offset: 2px;
+  }
+  button:disabled,
+  input:disabled,
+  select:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@layer components {
+  .input {
+    @apply block w-full rounded-lg border border-line-strong bg-white px-3 py-2 text-sm text-ink placeholder:text-muted/70 focus:border-sage-600 focus:outline-none focus:ring-1 focus:ring-sage-600 disabled:bg-paper disabled:text-muted;
+  }
+  .input-error {
+    @apply border-clay-600 focus:border-clay-600 focus:ring-clay-600;
+  }
+  .tbl {
+    @apply w-full border-collapse text-left text-sm;
+  }
+  .tbl th {
+    @apply whitespace-nowrap border-b border-line px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted;
+  }
+  .tbl td {
+    @apply border-b border-line px-4 py-3 align-middle;
+  }
+  .tbl tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .tbl tbody tr.row-link:hover {
+    @apply bg-sage-50;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,149 @@
+# ThreadIQ - full stack for local demonstration.
+#   cp .env.example .env        (optional: every variable has a default)
+#   docker compose up --build -d
+#   docker compose --profile tools run --rm seed      (load demo data)
+#
+# Containers talk to each other by service name (mongo, catalog-service, insights-service) on the
+# private `threadiq` network - never via localhost. The browser, however, runs on the host, so the
+# VITE_* URLs the web app is built with point at the PUBLISHED host ports.
+name: threadiq
+
+services:
+  mongo:
+    image: mongo:8.0
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks: [threadiq]
+    # Intentionally not published. Use docker-compose.dev.yml to reach it from the host.
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  catalog-service:
+    build:
+      context: .
+      dockerfile: services/catalog-service/Dockerfile
+    init: true
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      MONGODB_URI: mongodb://mongo:27017/threadiq_catalog
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${CATALOG_PORT:-3001}:3001"
+    networks: [threadiq]
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  insights-service:
+    build:
+      context: .
+      dockerfile: services/insights-service/Dockerfile
+    init: true
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      MONGODB_URI: mongodb://mongo:27017/threadiq_sales
+      CATALOG_SERVICE_URL: http://catalog-service:3001
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${INSIGHTS_PORT:-3002}:3002"
+    networks: [threadiq]
+    depends_on:
+      mongo:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Browser-facing URLs (resolved on the host, hence localhost + published ports).
+        VITE_CATALOG_API_URL: ${VITE_CATALOG_API_URL:-http://localhost:3001}
+        VITE_INSIGHTS_API_URL: ${VITE_INSIGHTS_API_URL:-http://localhost:3002}
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-5173}:8080"
+    networks: [threadiq]
+    depends_on:
+      catalog-service:
+        condition: service_healthy
+      insights-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # One-off job: docker compose --profile tools run --rm seed
+  seed:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile
+    environment:
+      CATALOG_MONGODB_URI: mongodb://mongo:27017/threadiq_catalog
+      SALES_MONGODB_URI: mongodb://mongo:27017/threadiq_sales
+    networks: [threadiq]
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  # One-off job: docker compose --profile tools run --rm smoke   (stack must be running)
+  smoke:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile
+    command: ["npx", "tsx", "smoke.ts"]
+    environment:
+      CATALOG_URL: http://catalog-service:3001
+      INSIGHTS_URL: http://insights-service:3002
+    networks: [threadiq]
+    depends_on:
+      insights-service:
+        condition: service_healthy
+
+  # One-off job: docker compose --profile tools run --rm test
+  # Type-checks and runs all automated tests against a throw-away test database on the compose MongoDB.
+  test:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: docker/test.Dockerfile
+    networks: [threadiq]
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+networks:
+  threadiq:
+    driver: bridge
+
+volumes:
+  mongo_data:

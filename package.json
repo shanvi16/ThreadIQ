@@ -1,0 +1,21 @@
+{
+  "name": "threadiq",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ThreadIQ - Smart Fashion Inventory & Trend Analytics (monorepo)",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "scripts"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:catalog": "npm run test -w @threadiq/catalog-service",
+    "test:insights": "npm run test -w @threadiq/insights-service"
+  }
+}

@@ -1,0 +1,99 @@
+# Run ThreadIQ from images published on Docker Hub (no source code / build needed).
+#   set DOCKERHUB_USER (and optionally IMAGE_TAG) in your shell or in .env, then:
+#   docker compose -f docker-compose.hub.yml up -d
+#   docker compose -f docker-compose.hub.yml --profile tools run --rm seed
+# See run.md, section "Publish to Docker Hub".
+name: threadiq
+
+services:
+  mongo:
+    image: mongo:8.0
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks: [threadiq]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  catalog-service:
+    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER}/threadiq-catalog-service:${IMAGE_TAG:-latest}
+    init: true
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      MONGODB_URI: mongodb://mongo:27017/threadiq_catalog
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+    ports:
+      - "3001:3001"
+    networks: [threadiq]
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  insights-service:
+    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER}/threadiq-insights-service:${IMAGE_TAG:-latest}
+    init: true
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      MONGODB_URI: mongodb://mongo:27017/threadiq_sales
+      CATALOG_SERVICE_URL: http://catalog-service:3001
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+    ports:
+      - "3002:3002"
+    networks: [threadiq]
+    depends_on:
+      mongo:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  # The web image has the API URLs (http://localhost:3001 / :3002) baked in at build time.
+  web:
+    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER}/threadiq-web:${IMAGE_TAG:-latest}
+    init: true
+    restart: unless-stopped
+    ports:
+      - "5173:8080"
+    networks: [threadiq]
+    depends_on:
+      catalog-service:
+        condition: service_healthy
+      insights-service:
+        condition: service_healthy
+
+  seed:
+    profiles: ["tools"]
+    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER}/threadiq-seed:${IMAGE_TAG:-latest}
+    environment:
+      CATALOG_MONGODB_URI: mongodb://mongo:27017/threadiq_catalog
+      SALES_MONGODB_URI: mongodb://mongo:27017/threadiq_sales
+    networks: [threadiq]
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+networks:
+  threadiq:
+    driver: bridge
+
+volumes:
+  mongo_data:

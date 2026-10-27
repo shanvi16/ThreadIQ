@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/.vite
+.git
+.gitignore
+.env
+**/.env
+docs
+docker-compose*.yml
+**/*.log
